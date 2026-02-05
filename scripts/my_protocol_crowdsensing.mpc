@@ -1,145 +1,135 @@
 from Compiler import library as lib
 import random
+
 # =============================================================================
 # BENCHMARKING & PROTOCOL CONFIGURATION
 # =============================================================================
-# NOTE: This code is intended for testing the logic of the protocols.
-# To reproduce paper scalability, use the experimental setup in the paper.
+# Configuration for high-scale crowdsensing simulation.
 # -----------------------------------------------------------------------------
-from Compiler import library as lib
-import random
-
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
-NUM_USERS = 10000 
-TEST_NUM = 100    
+NUM_USERS = 10000
+TEST_NUM = 10000
 NUM_TASKS = 500
 
 registered_ids = Array(NUM_USERS, sint)
 registered_keys = Array(NUM_USERS, sint)
-task_details = Array(NUM_TASKS, sint) # Added for Publish
+task_details = Array(NUM_TASKS, sint)
 users = Array(NUM_USERS, sint) 
-keys_array = sint.Array(NUM_USERS)
+values = Array(NUM_USERS, cint)
+
 # =============================================================================
 # FUNCTIONS
 # =============================================================================
 
-def Register():
-    # 1. Generate 40-bit keys and store them in the KEY array
-    keys = [random.getrandbits(40) for _ in range(NUM_USERS)]
-    registered_keys.assign(sint(keys))
-    
-    # 2. RID = Real ID + Key
-    registered_ids.assign(regint.inc(NUM_USERS) + registered_keys.get_vector())
-    
-    # 3. Send shares to Worker
-    registered_ids.reveal_to(0)
+def Register(_id, i):
+    # Generates 40-bit key and combines with ID
+    key = sint(random.getrandbits(40))
+    val = _id + key
+
+    registered_ids[i] = val
+    registered_keys[i] = key
+
+    # Return revealed share to simulate worker RID distribution
+    return val.reveal()
 
 def Verify(_id):
-    # This vectorized operation handles the 750k subtractions in one go
-    # It is the most efficient way to 'search' in MPC
-    values[:] = (registered_ids - _id).reveal()
+    # Vectorized subtraction and reveal
+    values.assign((registered_ids.get_vector() - _id).reveal())
 
-    # 'found' acts as a flag: 0 = False, 1 = True
-    # regint is a local CPU-side register, very fast for logic checks
-    found = regint(0)
-
-    # Parallelized loop optimized for multi-core (Xeon vCPUs)
+    found = MemValue(regint(0))
     @for_range_opt(NUM_USERS)
     def _(i):
-        # We check the revealed 'values' array for a zero
-        @if_(values[i] == 0)
+        is_match = (values[i] == 0)
+        @if_(is_match)
         def _():
             found.write(1)
+    return found.read()
 
-    # Return the flag (0 or 1) to the main benchmarking loop
-    return found
-
-## PreValidate: Ownership Protocol (Lines 1-2)
 def PreValidate(_id):
-    # USE THIS: Generates a 40-bit secret challenge at runtime
-    # This ensures the platform doesn't "know" the challenge in advance
-    challenge = sint(random.getrandbits(40))
-    
-    # We reveal (_id + challenge) to simulate sending the 'v' value to the worker
-    # The 'challenge' itself remains a secret share on the servers for Validation
+    challenge = sint.get_random_int(40)
     v = (_id + challenge).reveal()
-    
     return v, challenge
 
-## Validate: Ownership Protocol (Lines 4-6)
-# Note: 'v' is the worker's response (sint), 
-# 'key' is the registered_key[i] (sint), 
-# 'challenge' is the secret challenge from PreValidate (sint).
 def Validate(v, key, challenge):
-    # Compute the difference in the encrypted/shared domain
-    # [challenge_prime] = [v] - ([key] + [challenge])
+    # challenge_prime = [v] - ([key] + [challenge])
     challenge_prime = v - (key + challenge)
-    
-    # Reveal the result: 0 means the worker successfully proved ownership
     result = challenge_prime.reveal()
-    
-    # Returns True if they match, False otherwise
     return (result == 0)
 
 def Trace(_id):
-    # Vectorized subtraction to find the match across the 750k database
-    # This reveals the distance; 0 means we found the correct entry
-    values[:] = (registered_ids - _id).reveal()
-
-    # We use a 'cint' to hold the recovered ID. 
-    # We initialize it with -1 to indicate 'not found'
-    traced_id = regint(-1)
+    values.assign((registered_ids.get_vector() - _id).reveal())
+    traced_id = MemValue(regint(-1))
 
     @for_range_opt(NUM_USERS)
     def _(i):
-        # Check the revealed value
-        @if_(values[i] == 0)
+        is_match = (values[i] == 0)
+        @if_(is_match)
         def _():
-            # Recover the original ID: ID = (ID + Key) - Key
-            # We reveal the result because Trace is an intentional 
-            # de-anonymization step by the authorities.
+            # Recover ID: (ID + Key) - Key
             recovered = (registered_ids[i] - registered_keys[i]).reveal()
             traced_id.write(recovered)
-
-    return traced_id
+    return traced_id.read()
 
 def Publish(task_id, description_val):
-    """
-    Simulates publishing a task. In PTAP, this usually involves 
-    encrypting or secret-sharing task metadata.
-    """
-    # Store the secret task description (e.g., a hashed location or ID)
+    # Simulates publishing task metadata to the platform
     task_details[task_id] = sint(description_val)
-    # In a real system, this would involve broadcasting to workers
     return True 
 
 # =============================================================================
 # MAIN EXECUTION / BENCHMARKING SEQUENCE
 # =============================================================================
 
-print_ln("Starting PTAP Logic Test... (Workers: %s | Tasks: %s | Test Ops: %s)", 
-         NUM_USERS, NUM_TASKS, TEST_NUM)
+print_ln("Starting PTAP Logic Test... (Workers: %d | Test Ops: %d)" % (NUM_USERS, TEST_NUM))
 
 # 1. REGISTER
 print_ln("Timer 1: Registering...")
 lib.start_timer(1)
-Register()
+@for_range(NUM_USERS)
+def _(i):
+    users[i] = Register(sint(i), i)
 lib.stop_timer(1)
+
+# 2. PUBLISH
+print_ln("Timer 5: Publishing Tasks...")
+lib.start_timer(5)
+@for_range(NUM_TASKS)
+def _(i):
+    Publish(i, 12345)
+lib.stop_timer(5)
+
+# 3. VERIFY
+print_ln("Timer 2: Verifying...")
+lib.start_timer(2)
+@for_range(TEST_NUM)
+def _(i):
+    Verify(users[i])
+lib.stop_timer(2)
+
+# 4. VALIDATE
+print_ln("Timer 3: Validating Ownership...")
+lib.start_timer(3)
+@for_range(TEST_NUM)
+def _(i):
+    v, challenge = PreValidate(users[i])
+    v_prime = sint(v - i)
+    Validate(v_prime, registered_keys[i], challenge)
+lib.stop_timer(3)
+
+# 5. TRACE
+print_ln("Timer 4: Tracing...")
+lib.start_timer(4)
+@for_range(TEST_NUM)
+def _(i):
+    Trace(users[i])
+lib.stop_timer(4)
 
 # =============================================================================
 # FINAL BENCHMARK SUMMARY
 # =============================================================================
-print_ln("\n========================================================")
+print_ln("========================================================")
 print_ln("PTAP BENCHMARK SUMMARY")
 print_ln("========================================================")
-print_ln("Configuration: Workers=%s, Tasks=%s, Test_Ops=%s", 
-         NUM_USERS, NUM_TASKS, TEST_NUM)
+print_ln("Configuration: Workers=%d, Test_Ops=%d" % (NUM_USERS, TEST_NUM))
 print_ln("--------------------------------------------------------")
-print_ln("Time1 (Register): %s s", lib.get_timer(1))
-print_ln("Time5 (Publish):  %s s", lib.get_timer(5))
-print_ln("Time2 (Verify):   %s s", lib.get_timer(2))
-print_ln("Time3 (Validate): %s s", lib.get_timer(3))
-print_ln("Time4 (Trace):    %s s", lib.get_timer(4))
-print_ln("========================================================\n")
+print_ln("Protocol completed successfully.")
+print_ln("Summary of rounds and timing will follow below.")
+print_ln("========================================================")
