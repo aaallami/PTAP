@@ -14,16 +14,18 @@ users = []
 count = 0
 
 def Register(_id, i):
-    global count
+    # Generates a 40-bit secret-shared random integer
+    # This provides the information-theoretic security described in the paper
+    key = sint.get_random_int(40)
     
-    key = sint(rand.randint(0,1000))
+    # Blinding the ID with the secret key: [val] = [id] + [key]
     val = _id + key
 
-    #store id, key
+    # Store shares on the servers
     registered_ids[i] = val
     registered_keys[i] = key
 
-    #send shares to w
+    # Send the blinded ID to the worker
     return val.reveal()
 
 def Verify(_id):
