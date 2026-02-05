@@ -60,7 +60,7 @@ def Verify(_id):
 def PreValidate(_id):
     # USE THIS: Generates a 40-bit secret challenge at runtime
     # This ensures the platform doesn't "know" the challenge in advance
-    challenge = sint.get_random_int(40)
+    challenge = sint(random.getrandbits(40))
     
     # We reveal (_id + challenge) to simulate sending the 'v' value to the worker
     # The 'challenge' itself remains a secret share on the servers for Validation
