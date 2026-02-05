@@ -2,6 +2,14 @@ import random as rand
 import numpy as np
 from Compiler import library as lib, oram, path_oram
 
+NUM_USERS = 750000
+TEST_NUM = 10000
+users = Array(NUM_USERS, sint)
+values = Array(NUM_USERS, cint)
+registered_ids = Array(NUM_USERS, sint)
+registered_keys = Array(NUM_USERS, sint)
+
+task_details = Array(n_tasks, sint) # Stores secret-shared task attributes
 users = []
 count = 0
 
@@ -64,13 +72,16 @@ def Trace(_id):
             pass
         
     return cint(-1)
-       
-NUM_USERS = 750000
-TEST_NUM = 10000
-users = Array(NUM_USERS, sint)
-values = Array(NUM_USERS, cint)
-registered_ids = Array(NUM_USERS, sint)
-registered_keys = Array(NUM_USERS, sint)
+
+def Publish(task_id, description_val):
+    """
+    Simulates publishing a task. In PTAP, this usually involves 
+    encrypting or secret-sharing task metadata.
+    """
+    # Store the secret task description (e.g., a hashed location or ID)
+    task_details[task_id] = sint(description_val)
+    # In a real system, this would involve broadcasting to workers
+    return True 
 
 print_ln("Starting... (Num Users %s : Test Num %s)", NUM_USERS, TEST_NUM)
 
@@ -115,4 +126,13 @@ def _(i):
 
 lib.stop_timer(4)
 
+print_ln("Publishing Tasks...")
+lib.start_timer(5)
+
+@for_range(n_tasks)
+def _(i):
+    # Simulating publishing tasks with unique identifiers
+    Publish(i, i + 5000) 
+
+lib.stop_timer(5)
 print_ln("\nNum Users = %s\nTime = Total\nTime1 = Register\nTime2 = Verify\nTime3 = Validate\nTime4 = Trace\n", NUM_USERS)
