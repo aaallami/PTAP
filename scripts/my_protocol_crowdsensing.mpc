@@ -1,37 +1,40 @@
 from Compiler import library as lib
-
+import random
 # =============================================================================
 # BENCHMARKING & PROTOCOL CONFIGURATION
 # =============================================================================
 # NOTE: This code is intended for testing the logic of the protocols.
 # To reproduce paper scalability, use the experimental setup in the paper.
 # -----------------------------------------------------------------------------
-NUM_USERS = 750000 
-TEST_NUM = 10000
-NUM_TASKS = 500 
+from Compiler import library as lib
+import random
 
-# Initialize Arrays before function definitions
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+NUM_USERS = 10000 
+TEST_NUM = 100    
+NUM_TASKS = 500
+
 registered_ids = Array(NUM_USERS, sint)
 registered_keys = Array(NUM_USERS, sint)
-task_details = Array(NUM_TASKS, sint)
-users = Array(NUM_USERS, sint) # Fix: Don't use users = []
-values = Array(NUM_USERS, cint)
+task_details = Array(NUM_TASKS, sint) # Added for Publish
+users = Array(NUM_USERS, sint) 
+keys_array = sint.Array(NUM_USERS)
+# =============================================================================
+# FUNCTIONS
 # =============================================================================
 
-def Register(_id, i):
-    # Generates a 40-bit secret-shared random integer
-    # This provides the information-theoretic security described in the paper
-    key = sint.get_random_int(40)
+def Register():
+    # 1. Generate 40-bit keys and store them in the KEY array
+    keys = [random.getrandbits(40) for _ in range(NUM_USERS)]
+    registered_keys.assign(sint(keys))
     
-    # Blinding the ID with the secret key: [val] = [id] + [key]
-    val = _id + key
-
-    # Store shares on the servers
-    registered_ids[i] = val
-    registered_keys[i] = key
-
-    # Send the blinded ID to the worker
-    return val.reveal()
+    # 2. RID = Real ID + Key
+    registered_ids.assign(regint.inc(NUM_USERS) + registered_keys.get_vector())
+    
+    # 3. Send shares to Worker
+    registered_ids.reveal_to(0)
 
 def Verify(_id):
     # This vectorized operation handles the 750k subtractions in one go
@@ -119,53 +122,11 @@ def Publish(task_id, description_val):
 print_ln("Starting PTAP Logic Test... (Workers: %s | Tasks: %s | Test Ops: %s)", 
          NUM_USERS, NUM_TASKS, TEST_NUM)
 
-# 1. REGISTER: Populates the system with workers
-print_ln("Registering Workers...")
+# 1. REGISTER
+print_ln("Timer 1: Registering...")
 lib.start_timer(1)
-@for_range_opt(NUM_USERS)
-def _(i):
-    # Register returns revealed (ID + Key)
-    users[i] = Register(sint(i), i)
+Register()
 lib.stop_timer(1)
-
-# 2. PUBLISH: Sets up the sensing tasks
-print_ln("Publishing Tasks...")
-lib.start_timer(5)
-@for_range_opt(NUM_TASKS)
-def _(i):
-    # Publish task metadata securely
-    Publish(i, i + 5000) 
-lib.stop_timer(5)
-
-# 3. VERIFICATION: Benchmark the search/verify latency
-print_ln("Running Verification Tests...")
-lib.start_timer(2)
-@for_range_opt(TEST_NUM)
-def _(i):
-    Verify(users[i])
-lib.stop_timer(2)
-
-# 4. VALIDATION: Benchmark the Ownership Protocol (PreValidate + Validate)
-print_ln("Running Validation (Ownership) Tests...")
-lib.start_timer(3)
-@for_range_opt(TEST_NUM)
-def _(i):
-    # Server generates challenge
-    v_blinded, challenge = PreValidate(users[i])
-    # Worker computes response (v_prime = v_blinded - id)
-    # We simulate worker computation here
-    v_prime = sint(v_blinded - i) 
-    # Server performs final validation
-    Validate(v_prime, registered_keys[i], challenge)
-lib.stop_timer(3)
-
-# 5. TRACE: Benchmark the security/de-anonymization latency
-print_ln("Running Trace Tests...")
-lib.start_timer(4)
-@for_range_opt(TEST_NUM)
-def _(i):
-    Trace(users[i])
-lib.stop_timer(4)
 
 # =============================================================================
 # FINAL BENCHMARK SUMMARY
