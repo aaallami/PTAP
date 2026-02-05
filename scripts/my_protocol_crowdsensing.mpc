@@ -8,12 +8,12 @@ from Compiler import library as lib
 # -----------------------------------------------------------------------------
 NUM_USERS = 750000 
 TEST_NUM = 10000
-n_tasks = 500  # Added missing variable
+NUM_TASKS = 500 
 
 # Initialize Arrays before function definitions
 registered_ids = Array(NUM_USERS, sint)
 registered_keys = Array(NUM_USERS, sint)
-task_details = Array(n_tasks, sint)
+task_details = Array(NUM_TASKS, sint)
 users = Array(NUM_USERS, sint) # Fix: Don't use users = []
 values = Array(NUM_USERS, cint)
 # =============================================================================
