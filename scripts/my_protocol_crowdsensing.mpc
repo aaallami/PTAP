@@ -1,17 +1,22 @@
-import random as rand
-import numpy as np
-from Compiler import library as lib, oram, path_oram
+from Compiler import library as lib
 
-NUM_USERS = 750000
+# =============================================================================
+# BENCHMARKING & PROTOCOL CONFIGURATION
+# =============================================================================
+# NOTE: This code is intended for testing the logic of the protocols.
+# To reproduce paper scalability, use the experimental setup in the paper.
+# -----------------------------------------------------------------------------
+NUM_USERS = 750000 
 TEST_NUM = 10000
-users = Array(NUM_USERS, sint)
-values = Array(NUM_USERS, cint)
+n_tasks = 500  # Added missing variable
+
+# Initialize Arrays before function definitions
 registered_ids = Array(NUM_USERS, sint)
 registered_keys = Array(NUM_USERS, sint)
-
-task_details = Array(n_tasks, sint) # Stores secret-shared task attributes
-users = []
-count = 0
+task_details = Array(n_tasks, sint)
+users = Array(NUM_USERS, sint) # Fix: Don't use users = []
+values = Array(NUM_USERS, cint)
+# =============================================================================
 
 def Register(_id, i):
     # Generates a 40-bit secret-shared random integer
@@ -29,21 +34,24 @@ def Register(_id, i):
     return val.reveal()
 
 def Verify(_id):
-    global registered_ids
-    global values
-
+    # This vectorized operation handles the 750k subtractions in one go
+    # It is the most efficient way to 'search' in MPC
     values[:] = (registered_ids - _id).reveal()
 
-    @for_range(len(registered_ids))
+    # 'found' acts as a flag: 0 = False, 1 = True
+    # regint is a local CPU-side register, very fast for logic checks
+    found = regint(0)
+
+    # Parallelized loop optimized for multi-core (Xeon vCPUs)
+    @for_range_opt(NUM_USERS)
     def _(i):
-        val = values[i]
-        @if_e(val == 0)
+        # We check the revealed 'values' array for a zero
+        @if_(values[i] == 0)
         def _():
-            return True
-        @else_
-        def _():
-            pass
-    return False
+            found.write(1)
+
+    # Return the flag (0 or 1) to the main benchmarking loop
+    return found
 
 ##Prevalidate is Ownership Protocol Lines 1-2
 def PreValidate(_id):
